@@ -1,49 +1,106 @@
 import machine
-import time
 import rp2
 
-def setup_adc(Fs):
-    clkdiv = (48_000_000 / Fs) - 1
-    # Clear the single shot conversion mode - OPTIONAL
-    machine.mem32[0x4004C000] = machine.mem32[0x4004C000] & ~(1 << 2)
-    # Setup continuous sampling mode
-    machine.mem32[0x4004C000] = machine.mem32[0x4004C000] | (1 << 3)
-    # Clock Divider set sampling rate to 1 kHz
-    machine.mem32[0x4004C010] = int(clkdiv * (1 << 8))
-    # SETUP FIFO
-    # Set the DREQ threshold to 1, so that DMA is called as soon one conversion is done
-    machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (1 << 24)
-    # Enable shifting the 12 bits to a byte for easy DMA transfer
-    machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (1 << 1)
-    # Enable the DREQ
-    machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (1 << 3)
-    # Enable the FIFO
-    machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (1 << 0)
-    #
-
-
-Fs = 1000
-
-adc = machine.ADC(machine.Pin(26))
-setup_adc(Fs)
-sample_buffer = bytearray(25000)
+class ADCRP2:
+    
+    TREQ = 36
+    FIFO = 0x4004C00C
+    
+    @staticmethod
+    def init():
+        # Reset ADC
+        machine.mem32[0x4000C000] = machine.mem32[0x4000C000] | (1 << 0)
+        machine.mem32[0x4000C000] = machine.mem32[0x4000C000] & ~(1 << 0)
+        while(~(machine.mem32[0x4000C008]) & (1 << 0 )):
+            pass
+        # Enable the ADC
+        machine.mem32[0x4004C000] = machine.mem32[0x4004C000] | (1 << 0) 
+        # wait for the ADC to be ready
+        while (not (machine.mem32[0x4004C000] & (1 << 8))):
+            pass
+        
+    @staticmethod
+    def init_gpio(pin):
+        io_bank_addr = 0x40014004 + pin*8
+        # Select NULL function to make output driver hi-Z
+        machine.mem32[io_bank_addr] = 0x1F
+        pads_bank_addr = 0x4001C000 + (pin + 1)*4
+        # Disable pull up and pull down respectively
+        machine.mem32[pads_bank_addr] = machine.mem32[pads_bank_addr] & ~(1 << 3)
+        machine.mem32[pads_bank_addr] = machine.mem32[pads_bank_addr] & ~(1 << 2)
+        # Digital Digital Input
+        machine.mem32[pads_bank_addr] = machine.mem32[pads_bank_addr] & ~(1 << 6)
+    
+    @staticmethod
+    def select_input(input_):
+        machine.mem32[0x4004C000] = machine.mem32[0x4004C000] | (input_ << 12)
+    
+    @staticmethod
+    def read():
+        # Assert the start once bit
+        machine.mem32[0x4004C000] = machine.mem32[0x4004C000] | (1 << 2)
+        # Wait till ADC is not ready (for another conversion)
+        while (not (machine.mem32[0x4004C000] & (1 << 8))):
+            pass
+        # Return the result
+        return machine.mem32[0x4004C004]
+    
+    @staticmethod
+    def set_roundrobin(input_mask):
+        machine.mem32[0x4004C000] = machine.mem32[0x4004C000] | (input_mask << 16)
+    
+    @staticmethod
+    def fifo_setup(en, dreq_en, dreq_thresh, error_in_fifo, byte_shift):
+        if (en):
+            machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (1 << 0)
+        else:
+            machine.mem32[0x4004C008] = machine.mem32[0x4004C008] & ~(1 << 0)
+        if (byte_shift):
+            machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (1 << 1)
+        else:
+            machine.mem32[0x4004C008] = machine.mem32[0x4004C008] & ~(1 << 1)
+        if (error_in_fifo):
+            machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (1 << 2)
+        else:
+            machine.mem32[0x4004C008] = machine.mem32[0x4004C008] & ~(1 << 2)
+        if (byte_shift):
+            machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (1 << 3)
+        else:
+            machine.mem32[0x4004C008] = machine.mem32[0x4004C008] & ~(1 << 3)
+            
+        machine.mem32[0x4004C008] = machine.mem32[0x4004C008] | (dreq_thresh << 24)
+    
+    @staticmethod
+    def run(run):
+        if (run):
+            # Set the start many bit
+            machine.mem32[0x4004C000] = machine.mem32[0x4004C000] | (1 << 3)
+        else:
+            # Clear the start many bit
+            machine.mem32[0x4004C000] = machine.mem32[0x4004C000] & ~(1 << 3)
+            
+    
+    @staticmethod
+    def set_clkdiv(clkdiv):
+        machine.mem32[0x4004C010] = machine.mem32[0x4004C010] | (int(clkdiv) << 8)
+            
+ADCRP2.init_gpio(26)
+ADCRP2.init_gpio(27)
+ADCRP2.init()
+ADCRP2.set_roundrobin(3)
+ADCRP2.fifo_setup(True, True, 1, False, True)
+ADCRP2.set_clkdiv(48000)
+NS = 100
+sample_buffer = bytearray(NS)
 d = rp2.DMA()
-led = machine.Pin(25, machine.Pin.OUT)
-print(d.channel)
-# size = 0 => Byte transfer, no read increment, treq_sel=36 => ADC dreq
-c = d.pack_ctrl(size=0, inc_read = False, treq_sel = 36)
-d.config(read=0x4004C00C, write=sample_buffer, count = len(sample_buffer), ctrl=c, trigger=False)
-#time.sleep(1)
+c = d.pack_ctrl(size=0, inc_read = False, treq_sel = ADCRP2.TREQ)
+d.config(read=ADCRP2.FIFO, write=sample_buffer, count = NS, ctrl=c, trigger=False)
+ADCRP2.run(True)
+d.active(1)
 
-for i in range(0,1):
-    d.active(1)
-    led.value(1)
-    while d.active():
-        pass
-    #print(sample_buffer)
-    d.config(read=0x4004C00C, write=sample_buffer, count = len(sample_buffer), ctrl=c, trigger=False)
-    print("===================================")
-    time.sleep(0.2)
+while(d.active()):
+    pass
+
 d.close()
-with open('samples1.bin', 'wb') as f:
-    f.write(sample_buffer)
+ADCRP2.run(False)
+print(sample_buffer)
