@@ -20,7 +20,7 @@ Setup the ADC FIFO
 en = True => Enable the ADC FIFO, which is required for DMA transfer
 dreq_en = True => Enable the data request to DMA
 dreq_thresh = 1 => Call the DMA to transfer data after each conversion
-error_in_fifo = False => 
+error_in_fifo = False => DO not generate the error bit 
 byte_shift = True => Ignore the 4 LSBs and shift the 12-bit number to fit a byte for lesser memory
 '''
 ADCRP2.fifo_setup(en = True, dreq_en = True, dreq_thresh = 1, error_in_fifo = False, byte_shift = True)
