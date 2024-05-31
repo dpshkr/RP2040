@@ -18,4 +18,3 @@ For more details refer to the C SDK.
 * `ADCRP2.fifo_get()`:  Get ADC result from FIFO.
 * `ADCRP2.adc_fifo_get_blocking()`: Wait for the ADC FIFO to have data.
 * `ADCRP2.fifo_drain ()`:  Drain the ADC FIFO.
-* `ADCRP2.adc_irq_set_enabled(enabled)`: Enable/Disable ADC interrupts. 
