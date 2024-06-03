@@ -5,7 +5,7 @@ and do some other task
 
 import asyncio
 import rp2
-from ACRP2 import ADCRP2
+from ADCRP2 import ADCRP2
 import machine
 
 # Setup ADC and DMA channel 
